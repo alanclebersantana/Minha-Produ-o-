@@ -431,45 +431,12 @@ const FORMAS=['Pix','Dinheiro','Cartão','Transferência','Outro'];
 /* ============ estado ============ */
 const CHAVE='atelie.v1';
 const seed=()=>{
- const c1=uid(),c2=uid(),c3=uid(),m1=uid(),m2=uid(),m3=uid(),m4=uid();
  return{versao:1,tema:'lavanda',modo:'auto',custom:JSON.parse(JSON.stringify(CUSTOM_PADRAO)),
   cfg:{...CFG_PADRAO},
-  clientes:[
-   {id:c1,nome:'Ana Paula',telefone:'11988881234',email:'ana.paula@email.com',endereco:'Rua das Flores, 120 — São Paulo/SP'},
-   {id:c2,nome:'Escola Girassol',telefone:'11977775566',email:'contato@girassol.edu.br',endereco:'Av. Paulista, 900 — São Paulo/SP'},
-   {id:c3,nome:'Marina Costa',telefone:'11966669090',email:'marina.costa@email.com',endereco:'Rua Girassol, 45 — Guarulhos/SP'}],
-  estoque:[
-   {id:m1,nome:'Massa biscuit branca',qtd:2.4,minimo:1,unidade:'kg',custoUnitario:45,consumoPorItem:.3,producaoMensal:12},
-   {id:m2,nome:'Argolas de chaveiro',qtd:15,minimo:20,unidade:'un',custoUnitario:.8,consumoPorItem:1,producaoMensal:40},
-   {id:m3,nome:'Corante alimentício',qtd:3,minimo:1,unidade:'un',custoUnitario:12,consumoPorItem:.1,producaoMensal:8},
-   {id:m4,nome:'Linha de crochê rosa',qtd:1,minimo:3,unidade:'novelo',custoUnitario:9,consumoPorItem:1.5,producaoMensal:6}],
-  catalogo:[
-   {id:uid(),titulo:'Boneca biscuit personalizada',valor:120,custoProducao:38.5,tempoConfeccao:6,qtdEstoque:3,imagem:null,materiais:[{mid:m1,qtd:.4}]},
-   {id:uid(),titulo:'Chaveiro resina nome',valor:18,custoProducao:6.2,tempoConfeccao:.5,qtdEstoque:22,imagem:null,materiais:[{mid:m2,qtd:1}]},
-   {id:uid(),titulo:'Caderno artesanal A5',valor:45,custoProducao:15,tempoConfeccao:1.5,qtdEstoque:8,imagem:null,materiais:[]},
-   {id:uid(),titulo:'Amigurumi coelho',valor:65,custoProducao:19,tempoConfeccao:4,qtdEstoque:5,imagem:null,materiais:[{mid:m4,qtd:2}]}],
-  itens:[
-   {id:uid(),nome:'Boneca biscuit — encomenda Ana',tipo:'Biscuit',clienteId:c1,status:'producao',
-    custoMaterial:38.5,valorVenda:120,valorFrete:18,tempoHoras:6,dataPedido:addDias(-6),dataEntrega:addDias(4),
-    dataPostagem:addDias(3),rastreio:'',materiais:[{mid:m1,qtd:.4}],baixaFeita:false,
-    pagamentos:[{id:uid(),data:addDias(-6),valor:60,forma:'Pix'}],
-    etapas:[{nome:'Modelagem',data:addDias(-2),feita:true},{nome:'Secagem',data:addDias(0),feita:false},
-            {nome:'Pintura',data:addDias(2),feita:false},{nome:'Acabamento',data:addDias(3),feita:false}]},
-   {id:uid(),nome:'Kit chaveiro turma (10un)',tipo:'Chaveiro',clienteId:c2,status:'pronto',
-    custoMaterial:62,valorVenda:150,valorFrete:0,tempoHoras:3,dataPedido:addDias(-3),dataEntrega:addDias(1),
-    dataPostagem:addDias(1),rastreio:'',materiais:[{mid:m2,qtd:10}],baixaFeita:false,pagamentos:[],
-    etapas:[{nome:'Corte',data:addDias(-3),feita:true},{nome:'Montagem',data:addDias(-1),feita:true},
-            {nome:'Embalagem',data:addDias(0),feita:false}]},
-   {id:uid(),nome:'Bolo decorado — aniversário',tipo:'Bolo',clienteId:c3,status:'orcamento',
-    custoMaterial:54,valorVenda:180,valorFrete:25,tempoHoras:5,dataPedido:addDias(-2),dataEntrega:addDias(6),
-    dataPostagem:'',rastreio:'',materiais:[],baixaFeita:false,pagamentos:[],
-    etapas:[{nome:'Compra de ingredientes',data:addDias(4),feita:false},{nome:'Assar massa',data:addDias(5),feita:false},
-            {nome:'Decoração',data:addDias(6),feita:false}]},
-   {id:uid(),nome:'Amigurumi coelho — Marina',tipo:'Crochê',clienteId:c3,status:'entregue',
-    custoMaterial:19,valorVenda:65,valorFrete:0,tempoHoras:4,dataPedido:addDias(-40),dataEntrega:addDias(-32),
-    dataConclusao:addDias(-32),dataPostagem:addDias(-33),rastreio:'',materiais:[],baixaFeita:true,
-    pagamentos:[{id:uid(),data:addDias(-32),valor:65,forma:'Dinheiro'}],
-    etapas:[{nome:'Crochê',data:addDias(-35),feita:true},{nome:'Montagem',data:addDias(-33),feita:true}]}]}
+  clientes:[],
+  estoque:[],
+  catalogo:[],
+  itens:[]}
 };
 let S=carregar();
 function carregar(){
@@ -506,6 +473,7 @@ const aberto=i=>ABERTOS.includes(i.status);
 const atrasado=i=>aberto(i)&&i.dataEntrega&&diasAte(i.dataEntrega)<0;
 
 let UI={view:'painel',pai:null,periodo:90,fStatus:'todos',busca:'',calMes:new Date().getMonth(),calAno:new Date().getFullYear(),entregaVista:'lista'};
+let viewStack=['painel'];
 
 function noPeriodo(i){
  if(UI.periodo==='tudo')return true;
@@ -1751,7 +1719,7 @@ document.addEventListener('click',ev=>{
  if(!t)return;
  const d=t.dataset;
 
- if(d.view){UI.view=d.view;fechar();render();scrollTo({top:0});return}
+ if(d.view){if(UI.view!==d.view)viewStack.push(d.view);UI.view=d.view;fechar();render();scrollTo({top:0});return}
  if(d.pai){UI.pai=d.pai;render();scrollTo({top:0});return}
  if(d.ord){const[i,dir]=d.ord.split('|').map(Number),a=S.cfg.ordemPainel,j=i+dir;
   if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];
@@ -1945,6 +1913,19 @@ document.addEventListener('input',e=>{
 $('#scrim').onclick=fechar;
 addEventListener('keydown',e=>{if(e.key==='Escape'&&sheetAberto)fechar()});
 addEventListener('scroll',()=>{$('#hd').classList.toggle('scrolled',scrollY>6)},{passive:true});
+
+/* ============ botão/gesto de voltar ============ */
+/* Mantemos sempre uma entrada extra no histórico do navegador. Assim o gesto/botão
+   de voltar do celular nunca fecha o app: ele sempre encontra algo para "desfazer"
+   aqui dentro. Se houver uma aba (sheet) aberta, ela fecha; senão, volta para a
+   página/seção anterior; se não houver anterior, o app simplesmente permanece. */
+history.replaceState({guard:true},'');
+history.pushState({guard:true},'');
+addEventListener('popstate',()=>{
+ if(sheetAberto){fechar();}
+ else if(viewStack.length>1){viewStack.pop();UI.view=viewStack[viewStack.length-1];render();scrollTo({top:0});}
+ history.pushState({guard:true},'');
+});
 
 /* ============ start ============ */
 render();
