@@ -587,7 +587,10 @@ function migrar(d){
  d.itens.forEach(i=>{i.status=i.status||'producao';i.pagamentos=i.pagamentos||[];i.materiais=i.materiais||[];
   i.etapas=i.etapas||[];i.valorFrete=i.valorFrete||0;i.dataPedido=i.dataPedido||i.dataEntrega||hoje();
   i.quantidade=num(i.quantidade)||1;i.produtoId=i.produtoId||'';i.pedidoCod=i.pedidoCod||'';
-  if(i.estoqueBaixado===undefined)i.estoqueBaixado=false;});
+  /* estoqueBaixadoQtd = quantas unidades já saíram do estoque do produto pra este pedido (pode ser fração,
+     proporcional ao quanto já foi pago); dados antigos (baixa tudo-ou-nada) migram pro novo formato */
+  i.estoqueBaixadoQtd=i.estoqueBaixadoQtd!==undefined?num(i.estoqueBaixadoQtd):(i.estoqueBaixado?i.quantidade:0);
+  delete i.estoqueBaixado;});
  d.catalogo.forEach(c=>{c.materiais=c.materiais||[]});
  d.modo=d.modo||'auto';d.tema=d.tema||'areia';
  return d;
@@ -659,25 +662,25 @@ function vendidosProdutoNoMes(produtoId){
   .filter(i=>{const dq=dataQuitacao(i);return dq&&dq>=ini})
   .reduce((s,i)=>s+(num(i.quantidade)||1),0);
 }
-/* baixa/devolve peças prontas no catálogo quando o pedido fica quitado/deixa de estar quitado */
-function baixarEstoqueProduto(it){
- if(!it.produtoId||it.estoqueBaixado)return false;
- const p=S.catalogo.find(c=>c.id===it.produtoId);if(!p)return false;
- p.qtdEstoque=Math.max(0,num(p.qtdEstoque)-(num(it.quantidade)||1));it.estoqueBaixado=true;return true;
-}
-function devolverEstoqueProduto(it){
- if(!it.produtoId||!it.estoqueBaixado)return false;
- const p=S.catalogo.find(c=>c.id===it.produtoId);if(!p)return false;
- p.qtdEstoque=num(p.qtdEstoque)+(num(it.quantidade)||1);it.estoqueBaixado=false;return true;
+/* baixa/devolve peças do catálogo de forma PROPORCIONAL ao quanto do pedido já foi pago
+   (pagou 50% → já sai meia unidade do estoque do produto; quitou → sai a unidade inteira) */
+function qtdBaixarProporcional(it){
+ const qtd=num(it.quantidade)||1;
+ if(!it.produtoId||totalItem(it)<=0)return 0;
+ const pago=Math.max(0,Math.min(totalItem(it),pagoItem(it)));
+ return qtd*(pago/totalItem(it));
 }
 function sincronizarEstoqueProduto(it){
- if(!it.produtoId||totalItem(it)<=0)return null;
- const cheio=saldoItem(it)<=0.005&&(it.pagamentos||[]).length>0;
+ if(!it.produtoId)return null;
  const p=S.catalogo.find(c=>c.id===it.produtoId);if(!p)return null;
- const qtd=num(it.quantidade)||1;
- if(cheio&&baixarEstoqueProduto(it))return`${qtd} ${qtd>1?'peças baixadas':'peça baixada'} do estoque de ${esc(p.titulo)}`;
- if(!cheio&&devolverEstoqueProduto(it))return`estoque de ${esc(p.titulo)} estornado`;
- return null;
+ const alvo=qtdBaixarProporcional(it),atual=num(it.estoqueBaixadoQtd)||0;
+ const delta=+(alvo-atual).toFixed(4);
+ if(Math.abs(delta)<0.0005)return null;
+ p.qtdEstoque=Math.max(0,+(num(p.qtdEstoque)-delta).toFixed(4));
+ it.estoqueBaixadoQtd=alvo;
+ const qf=n=>nBR(n).replace(/,00$/,'');
+ if(delta>0)return`${qf(delta)} ${Math.abs(delta-1)<0.0005?'peça baixada':'peças baixadas'} do estoque de ${esc(p.titulo)}`;
+ return`${qf(-delta)} ${Math.abs(delta+1)<0.0005?'peça estornada':'peças estornadas'} ao estoque de ${esc(p.titulo)}`;
 }
 
 let UI={view:'painel',pai:null,periodo:90,fStatus:'todos',busca:'',calMes:new Date().getMonth(),calAno:new Date().getFullYear(),entregaVista:'lista',metaProdutosAberto:false};
@@ -2174,10 +2177,12 @@ document.addEventListener('click',ev=>{
  if(d.metaauto){const item=S.cfg.metas.produtos.find(x=>x.id===d.metaauto);
   if(item){item.fixado=false;salvar();render();toast('Voltou a calcular automaticamente')}return}
 
- if(d.delitem){const i=S.itens.findIndex(x=>x.id===d.delitem),bk=S.itens[i],tinhaBaixado=bk.estoqueBaixado;
-  if(tinhaBaixado)devolverEstoqueProduto(bk);
+ if(d.delitem){const i=S.itens.findIndex(x=>x.id===d.delitem),bk=S.itens[i],qtdBaixada=num(bk.estoqueBaixadoQtd)||0;
+  if(qtdBaixada>0&&bk.produtoId){const p=S.catalogo.find(c=>c.id===bk.produtoId);if(p)p.qtdEstoque=+(num(p.qtdEstoque)+qtdBaixada).toFixed(4)}
   S.itens.splice(i,1);salvar();fechar();render();
-  toast('Pedido excluído',()=>{S.itens.splice(i,0,bk);if(tinhaBaixado)baixarEstoqueProduto(bk)});return}
+  toast('Pedido excluído',()=>{S.itens.splice(i,0,bk);
+   if(qtdBaixada>0&&bk.produtoId){const p=S.catalogo.find(c=>c.id===bk.produtoId);if(p)p.qtdEstoque=Math.max(0,+(num(p.qtdEstoque)-qtdBaixada).toFixed(4))}
+  });return}
  if(d.delcli){const i=S.clientes.findIndex(x=>x.id===d.delcli),bk=S.clientes[i];
   S.clientes.splice(i,1);salvar();fechar();render();toast('Cliente excluído',()=>S.clientes.splice(i,0,bk));return}
  if(d.delprod){const i=S.catalogo.findIndex(x=>x.id===d.delprod),bk=S.catalogo[i];
