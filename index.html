@@ -3,6 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- ============ CAPTURA DE ERROS (temporário, pra achar o bug da tela em branco) ============
+     Isso tem que ficar bem no topo, antes de qualquer outro script, pra pegar erro de qualquer um deles.
+     Se a tela ficar em branco/travada, um quadro vermelho deve aparecer contando o que quebrou.
+     Depois que acharmos e corrigirmos o bug, esse bloco pode ser removido. -->
+<script>
+(function(){
+ function mostrar(msg,stack){
+  try{
+   var box=document.getElementById('erroDebugBox');
+   if(!box){
+    box=document.createElement('div');box.id='erroDebugBox';
+    box.style.cssText='position:fixed;inset:0;z-index:999999;background:#2a0e0e;color:#fff;padding:16px;overflow:auto;font:12px/1.5 monospace;white-space:pre-wrap';
+    var btn=document.createElement('button');
+    btn.textContent='Fechar';
+    btn.style.cssText='position:fixed;top:10px;right:10px;z-index:1000000;padding:10px 16px;border-radius:8px;border:0;background:#fff;color:#2a0e0e;font-weight:700;font-family:sans-serif';
+    btn.onclick=function(){box.remove()};
+    var tit=document.createElement('div');
+    tit.textContent='Achei um erro — tira um print desta tela e manda pro Alan corrigir:';
+    tit.style.cssText='font-weight:700;margin-bottom:10px;font-family:sans-serif;padding-right:90px';
+    var pre=document.createElement('div');pre.id='erroDebugTexto';
+    var anexar=function(){box.appendChild(tit);box.appendChild(btn);box.appendChild(pre);document.body.appendChild(box)};
+    if(document.body)anexar();else document.addEventListener('DOMContentLoaded',anexar);
+   }
+   var pre=document.getElementById('erroDebugTexto');
+   if(pre)pre.textContent+=(pre.textContent?'\n\n-------\n\n':'')+msg+(stack?'\n'+stack:'');
+  }catch(_){}
+ }
+ window.addEventListener('error',function(e){mostrar('ERRO: '+e.message+' ('+e.filename+':'+e.lineno+')',e.error&&e.error.stack);});
+ window.addEventListener('unhandledrejection',function(e){
+  var r=e.reason;mostrar('PROMESSA COM ERRO: '+(r&&r.message?r.message:String(r)),r&&r.stack);
+ });
+})();
+</script>
 <title>Meu Ateliê</title>
 <meta name="description" content="Gestão de produção artesanal: encomendas, estoque, clientes, entregas e preços.">
 <link rel="manifest" href="manifest.json">
@@ -25,15 +58,21 @@
 <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js"></script>
 <script>
-apiKey: "AIzaSyC0a9K6op7IrtQ1sDMHHfK8EEE_Glq21qY",
+const firebaseConfig = {
+  apiKey: "AIzaSyC0a9K6op7IrtQ1sDMHHfK8EEE_Glq21qY",
   authDomain: "minha-producao-6caa0.firebaseapp.com",
   projectId: "minha-producao-6caa0",
   storageBucket: "minha-producao-6caa0.firebasestorage.app",
   messagingSenderId: "1015164671367",
   appId: "1:1015164671367:web:f6402cf19ec5ee9b7f2f22"
 };
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
+var db=null;
+try{
+ firebase.initializeApp(firebaseConfig);
+ db=firebase.firestore();
+}catch(e){
+ console.warn('Firebase não iniciou (sem internet, SDK bloqueado, etc.) — o app segue funcionando só com os dados do aparelho',e);
+}
 </script>
 
 <style>
@@ -516,7 +555,10 @@ function comPrazo(p,ms){
    só troca S e re-renderiza se a nuvem realmente tiver algo mais novo que este aparelho */
 function sincronizarNaEntrada(uid){
  syncEstado='wait';atualizarSyncUI();
- comPrazo(db.collection('usuarios').doc(uid).get(),8000).then(doc=>{
+ let pedido;
+ try{pedido=db.collection('usuarios').doc(uid).get()}
+ catch(e){console.warn('Firestore indisponível',e);syncEstado='erro';atualizarSyncUI();return}
+ comPrazo(pedido,8000).then(doc=>{
   if(doc.exists){
    const nuvem=migrar(doc.data());
    if((nuvem._sync||0)>(S._sync||0)){
@@ -562,7 +604,10 @@ function salvarNuvem(){
  clearTimeout(nuvemT);
  syncEstado='wait';atualizarSyncUI();
  nuvemT=setTimeout(()=>{
-  comPrazo(db.collection('usuarios').doc(UID_ATUAL).set(S),8000)
+  let pedido;
+  try{pedido=db.collection('usuarios').doc(UID_ATUAL).set(S)}
+  catch(e){console.warn('Firestore indisponível',e);syncEstado='erro';atualizarSyncUI();return}
+  comPrazo(pedido,8000)
    .then(()=>{syncEstado='ok';syncQuando=Date.now();atualizarSyncUI()})
    .catch(e=>{console.warn('sem conexão com a nuvem agora — os dados continuam salvos neste aparelho',e);
     syncEstado='erro';atualizarSyncUI()});
@@ -2176,16 +2221,16 @@ document.addEventListener('click',ev=>{
   case'auth-entrar':{
    const email=val('authEmail').trim(),senha=val('authSenha');
    if(!email||!senha)return toast('Preencha e-mail e senha');
-   firebase.auth().signInWithEmailAndPassword(email,senha).catch(erroAuth);break}
+   try{firebase.auth().signInWithEmailAndPassword(email,senha).catch(erroAuth)}catch(e){erroSemFirebase(e)}break}
   case'auth-cadastrar':{
    const email=val('authEmail').trim(),senha=val('authSenha');
    if(!email||!senha)return toast('Preencha e-mail e senha');
-   firebase.auth().createUserWithEmailAndPassword(email,senha).catch(erroAuth);break}
+   try{firebase.auth().createUserWithEmailAndPassword(email,senha).catch(erroAuth)}catch(e){erroSemFirebase(e)}break}
   case'auth-esqueci':{
    const email=val('authEmail').trim();
    if(!email)return toast('Digite seu e-mail primeiro');
-   firebase.auth().sendPasswordResetEmail(email).then(()=>toast('E-mail de redefinição enviado')).catch(erroAuth);break}
-  case'sair':firebase.auth().signOut();break;
+   try{firebase.auth().sendPasswordResetEmail(email).then(()=>toast('E-mail de redefinição enviado')).catch(erroAuth)}catch(e){erroSemFirebase(e)}break}
+  case'sair':try{firebase.auth().signOut()}catch(e){erroSemFirebase(e)}break;
   case'modo':S.modo=escuroAtivo()?'claro':'escuro';salvar();render();break;
   case'lista-compras':listaCompras();break;
   case'add-etapa':lerItem();FORM.etapas.push({nome:'',data:hoje(),feita:false});$('#sheetBody').innerHTML=corpoItem();break;
@@ -2393,6 +2438,11 @@ function erroAuth(e){
   'auth/too-many-requests':'Muitas tentativas — aguarde um pouco','auth/network-request-failed':'Sem conexão com a internet'};
  toast(map[e.code]||('Erro: '+(e.message||e.code||'tente novamente')));
 }
+/* quando o próprio SDK do Firebase não carregou (sem internet, bloqueio, etc.) — evita ficar "sem reação" */
+function erroSemFirebase(e){
+ console.warn('Firebase indisponível:',e);
+ toast('Sem conexão com o servidor agora. Verifique sua internet e tente de novo.');
+}
 function iniciarApp(){
  render();
  if(_appIniciado)return;
@@ -2402,17 +2452,22 @@ function iniciarApp(){
  setInterval(checarLembretes,60000);
  addEventListener('visibilitychange',()=>{if(!document.hidden&&AUTH_USER)checarLembretes()});
 }
-firebase.auth().onAuthStateChanged(user=>{
- AUTH_USER=user;
- if(user){
-  S=carregarParaUsuario(user.uid);ocultarAuth();iniciarApp();
-  sincronizarNaEntrada(user.uid);
- }
- else{UID_ATUAL=null;authModo='login';mostrarAuth()}
-});
-
 /* ============ start ============ */
-mostrarAuth(); /* fica visível até o Firebase confirmar se há sessão ativa */
+mostrarAuth(); /* fica visível até o Firebase confirmar se há sessão ativa (ou até dar erro, ver abaixo) */
+try{
+ firebase.auth().onAuthStateChanged(user=>{
+  AUTH_USER=user;
+  if(user){
+   S=carregarParaUsuario(user.uid);ocultarAuth();iniciarApp();
+   sincronizarNaEntrada(user.uid);
+  }
+  else{UID_ATUAL=null;authModo='login';mostrarAuth()}
+ });
+}catch(e){
+ console.warn('Não consegui iniciar o Firebase Auth — provavelmente sem internet ou o SDK não carregou',e);
+ mostrarAuth();
+ toast('Sem conexão com o servidor agora. Verifique sua internet e reabra o app.');
+}
 </script>
 </body>
 </html>
