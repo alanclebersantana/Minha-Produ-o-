@@ -15,6 +15,25 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" id="fonteBase">
 <link rel="stylesheet" id="fonteSel">
+
+<!-- ============ FIREBASE (login com e-mail) ============
+     1. Troque os valores de firebaseConfig abaixo pelos do SEU projeto
+        (Firebase Console > Configurações do projeto > Seus apps > SDK setup and configuration).
+     2. Se um dia trocar de versão do SDK, troque nas duas linhas dos scripts abaixo. -->
+<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "SUA_API_KEY",
+  authDomain: "SEU_PROJETO.firebaseapp.com",
+  projectId: "SEU_PROJETO",
+  storageBucket: "SEU_PROJETO.appspot.com",
+  messagingSenderId: "SEU_SENDER_ID",
+  appId: "SEU_APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+</script>
+
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
@@ -232,9 +251,14 @@ svg.chart{display:block;width:100%;height:auto;overflow:visible}
 .swatch[aria-pressed="true"]{border-color:var(--accent)}
 .thumb{width:100%;aspect-ratio:1.35;border-radius:14px;object-fit:cover;display:block;background:var(--soft2)}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---------- auth gate ---------- */
+#authGate{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px}
+#authGate .card{width:100%}
 </style>
 </head>
 <body>
+<div id="authGate" class="hide"></div>
 <header id="hd">
   <div class="hrow">
     <div style="min-width:0">
@@ -333,7 +357,9 @@ const CFG_PADRAO={valorHora:22,margem:100,taxa:0,
  nomeAtelie:'Minha Produção',subtitulo:'Gestão de produção artesanal',
  ordemPainel:ABAS.map(a=>a[0]),
  fonteTit:'nunito',fonteSub:'nunito',fonteBody:'nunito',escala:'1',
- notif:{ativo:false,hora:'08:00',dias:3,vencidos:true,hoje:true,futuros:true,ultimo:''}};
+ notif:{ativo:false,hora:'08:00',dias:3,vencidos:true,hoje:true,futuros:true,ultimo:''},
+ despesas:{aluguel:0,luz:0,agua:0,internet:0,outras:0,horasMes:160,incluir:false},
+ metas:{semana:0,mes:0,produtos:[]}};
 
 /* ============ paletas ============ */
 const PALETAS={
@@ -429,7 +455,8 @@ const TIPOS=['Biscuit','Chaveiro','Caderno','Crochê','Bolo','Resina','Outro'];
 const FORMAS=['Pix','Dinheiro','Cartão','Transferência','Outro'];
 
 /* ============ estado ============ */
-const CHAVE='atelie.v1';
+const CHAVE_LEGADO='atelie.v1';
+let CHAVE=CHAVE_LEGADO;
 const seed=()=>{
  return{versao:1,tema:'lavanda',modo:'auto',custom:JSON.parse(JSON.stringify(CUSTOM_PADRAO)),
   cfg:{...CFG_PADRAO},
@@ -438,19 +465,36 @@ const seed=()=>{
   catalogo:[],
   itens:[]}
 };
-let S=carregar();
+let S=seed(); /* placeholder até o login confirmar de quem são os dados (ver carregarParaUsuario) */
 function carregar(){
  try{const r=localStorage.getItem(CHAVE);if(r){const d=JSON.parse(r);return migrar(d)}}catch(e){console.warn(e)}
  return seed();
+}
+function carregarParaUsuario(uid){
+ const chaveUid='atelie.v1.uid.'+uid;
+ try{
+  if(!localStorage.getItem(chaveUid)){
+   const legado=localStorage.getItem(CHAVE_LEGADO);
+   /* primeira conta a logar neste aparelho "herda" os dados que já existiam antes do login */
+   if(legado)localStorage.setItem(chaveUid,legado);
+  }
+ }catch(e){console.warn(e)}
+ CHAVE=chaveUid;
+ return carregar();
 }
 function migrar(d){
  d.custom=Object.assign(JSON.parse(JSON.stringify(CUSTOM_PADRAO)),d.custom||{});
  d.cfg=Object.assign({},CFG_PADRAO,d.cfg||{});
  d.cfg.notif=Object.assign({},CFG_PADRAO.notif,d.cfg.notif||{});
+ d.cfg.despesas=Object.assign({},CFG_PADRAO.despesas,d.cfg.despesas||{});
+ d.cfg.metas=Object.assign({},CFG_PADRAO.metas,d.cfg.metas||{});
+ if(!Array.isArray(d.cfg.metas.produtos))d.cfg.metas.produtos=[];
+ d.cfg.metas.produtos.forEach(p=>{if(p.fixado===undefined)p.fixado=true;p.qtdAlvo=num(p.qtdAlvo)});
  if(!Array.isArray(d.cfg.ordemPainel)||d.cfg.ordemPainel.length!==ABAS.length)d.cfg.ordemPainel=ABAS.map(a=>a[0]);
  ['itens','clientes','estoque','catalogo'].forEach(k=>{if(!Array.isArray(d[k]))d[k]=[]});
  d.itens.forEach(i=>{i.status=i.status||'producao';i.pagamentos=i.pagamentos||[];i.materiais=i.materiais||[];
-  i.etapas=i.etapas||[];i.valorFrete=i.valorFrete||0;i.dataPedido=i.dataPedido||i.dataEntrega||hoje()});
+  i.etapas=i.etapas||[];i.valorFrete=i.valorFrete||0;i.dataPedido=i.dataPedido||i.dataEntrega||hoje();
+  i.quantidade=num(i.quantidade)||1;i.produtoId=i.produtoId||'';i.pedidoCod=i.pedidoCod||''});
  d.catalogo.forEach(c=>{c.materiais=c.materiais||[]});
  d.modo=d.modo||'auto';d.tema=d.tema||'areia';
  return d;
@@ -472,7 +516,29 @@ const dataRef=i=>i.dataConclusao||i.dataEntrega||i.dataPedido;
 const aberto=i=>ABERTOS.includes(i.status);
 const atrasado=i=>aberto(i)&&i.dataEntrega&&diasAte(i.dataEntrega)<0;
 
-let UI={view:'painel',pai:null,periodo:90,fStatus:'todos',busca:'',calMes:new Date().getMonth(),calAno:new Date().getFullYear(),entregaVista:'lista'};
+/* ---- despesas fixas / custo da hora do ateliê ---- */
+function totalDespesas(){const d=S.cfg.despesas||{};return num(d.aluguel)+num(d.luz)+num(d.agua)+num(d.internet)+num(d.outras)}
+function custoHoraAtelie(){const d=S.cfg.despesas||{},h=num(d.horasMes);return h>0?totalDespesas()/h:0}
+function valorHoraEfetivo(){return num(S.cfg.valorHora)+((S.cfg.despesas&&S.cfg.despesas.incluir)?custoHoraAtelie():0)}
+
+/* ---- código de pedido ---- */
+function novoPedidoCod(){
+ let max=0;
+ S.itens.forEach(i=>{const m=/^PED-(\d+)$/.exec(i.pedidoCod||'');if(m)max=Math.max(max,+m[1])});
+ return 'PED-'+String(max+1).padStart(4,'0');
+}
+
+/* ---- metas de vendas ---- */
+function inicioSemana(){const d=new Date();const dia=(d.getDay()+6)%7;d.setDate(d.getDate()-dia);d.setHours(0,0,0,0);return d.toISOString().slice(0,10)}
+function inicioMes(){const d=new Date();d.setDate(1);d.setHours(0,0,0,0);return d.toISOString().slice(0,10)}
+function receitaDesde(iso){return S.itens.filter(i=>i.status==='entregue'&&dataRef(i)>=iso).reduce((s,i)=>s+totalItem(i),0)}
+function vendidosProdutoNoMes(produtoId){
+ const ini=inicioMes();
+ return S.itens.filter(i=>i.produtoId===produtoId&&i.status==='entregue'&&dataRef(i)>=ini)
+  .reduce((s,i)=>s+(num(i.quantidade)||1),0);
+}
+
+let UI={view:'painel',pai:null,periodo:90,fStatus:'todos',busca:'',calMes:new Date().getMonth(),calAno:new Date().getFullYear(),entregaVista:'lista',metaProdutosAberto:false};
 let viewStack=['painel'];
 
 function noPeriodo(i){
@@ -702,10 +768,79 @@ function metricas(){
   valorEstoque:S.estoque.reduce((s,e)=>s+num(e.qtd)*num(e.custoUnitario),0),
   clientesAtivos:new Set(S.itens.filter(aberto).map(i=>i.clienteId).filter(Boolean)).size};
 }
+const SEMANAS_MES=4.345;
+function calcMetaProdutos(){
+ const m=S.cfg.metas||{semana:0,mes:0,produtos:[]};
+ const prods=(m.produtos||[]).map(x=>({...x,p:S.catalogo.find(c=>c.id===x.id)})).filter(x=>x.p);
+ /* a meta "de referência" pra planejar produtos é a mensal; se só houver semanal, convertemos p/ um equivalente mensal */
+ const metaBase=num(m.mes)>0?num(m.mes):(num(m.semana)>0?num(m.semana)*SEMANAS_MES:0);
+ const fixos=prods.filter(x=>x.fixado),autos=prods.filter(x=>!x.fixado);
+ const somaFixos=fixos.reduce((s,x)=>s+Math.max(0,num(x.qtdAlvo))*num(x.p.valor),0);
+ const restante=Math.max(0,metaBase-somaFixos);
+ const shareAuto=autos.length?restante/autos.length:0;
+ const qtyFinal={};
+ fixos.forEach(x=>qtyFinal[x.id]=Math.max(0,Math.round(num(x.qtdAlvo))));
+ autos.forEach(x=>{const preco=num(x.p.valor);qtyFinal[x.id]=preco>0?Math.ceil(shareAuto/preco):0});
+ return{prods,metaBase,qtyFinal};
+}
+function cardMetas(){
+ const m=S.cfg.metas||{semana:0,mes:0,produtos:[]};
+ const rSem=receitaDesde(inicioSemana()),rMes=receitaDesde(inicioMes());
+ const pctSem=num(m.semana)>0?Math.min(100,rSem/num(m.semana)*100):0;
+ const pctMes=num(m.mes)>0?Math.min(100,rMes/num(m.mes)*100):0;
+ const{prods,metaBase,qtyFinal}=calcMetaProdutos();
+ const totalQtd=prods.reduce((s,x)=>s+(qtyFinal[x.id]||0),0);
+ const totalProjetado=prods.reduce((s,x)=>s+(qtyFinal[x.id]||0)*num(x.p.valor),0);
+ return `
+ <section class="sect" style="margin-top:0">
+  <h2>${ic('estrela',15)} Metas de vendas</h2>
+  <div class="row r2">
+   <label class="field"><span>Meta semanal (R$)</span><input class="input" type="text" inputmode="decimal" data-meta="semana" value="${m.semana||''}"></label>
+   <label class="field"><span>Meta mensal (R$)</span><input class="input" type="text" inputmode="decimal" data-meta="mes" value="${m.mes||''}"></label>
+  </div>
+  ${num(m.semana)>0?`<div style="margin-bottom:10px">
+   <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700"><span>Esta semana</span><span>${money0(rSem)} / ${money0(m.semana)}</span></div>
+   <div class="prog"><i style="width:${pctSem}%"></i></div></div>`:''}
+  ${num(m.mes)>0?`<div style="margin-bottom:4px">
+   <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700"><span>Este mês</span><span>${money0(rMes)} / ${money0(m.mes)}</span></div>
+   <div class="prog"><i style="width:${pctMes}%"></i></div></div>`:''}
+  ${UI.metaProdutosAberto?`
+  <p class="grouplb">Produtos para bater a meta</p>
+  ${metaBase<=0&&prods.length?`<p class="dim" style="font-size:12px;margin:-2px 0 10px">Defina uma meta semanal ou mensal acima pra calcular quantas peças vender.</p>`:''}
+  ${prods.length?prods.map(x=>{
+    const qtd=qtyFinal[x.id]||0,vend=vendidosProdutoNoMes(x.id),pct=qtd>0?Math.min(100,vend/qtd*100):0;
+    const porSemana=Math.max(0,Math.round(qtd/SEMANAS_MES));
+    const idxOrig=m.produtos.findIndex(p=>p.id===x.id);
+    return `<div style="margin-bottom:12px">
+     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.p.titulo)}</span>
+      <button class="iconbtn" data-rmmeta="${idxOrig}" aria-label="Remover" style="width:24px;height:24px">${ic('x',13)}</button>
+     </div>
+     <div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+      <input class="input" style="width:64px;padding:6px 8px;text-align:center" type="number" min="0" step="1" data-metaqtd="${x.id}" value="${qtd}">
+      <span class="dim" style="font-size:11px;line-height:1.3">unid./mês${qtd?` · ≈${porSemana}/semana`:''}<br>${x.fixado?'definida por você':'sugestão automática'}</span>
+      ${x.fixado?`<button class="iconbtn" data-metaauto="${x.id}" aria-label="Recalcular automaticamente" title="Voltar a calcular automaticamente" style="width:26px;height:26px;margin-left:auto">${ic('repetir',13)}</button>`:''}
+     </div>
+     <div class="prog" style="margin-top:6px"><i style="width:${pct}%"></i></div>
+     <span class="dim" style="font-size:11px">${vend}/${qtd} vendidos este mês</span>
+    </div>`}).join(''):'<p class="dim" style="font-size:12.5px;margin-bottom:10px">Nenhum produto vinculado ainda.</p>'}
+  ${prods.length&&metaBase>0?`<div class="kv" style="border-top:1px solid var(--line);margin-bottom:10px">
+   <span class="dim">Total sugerido</span><b>${nBR(totalQtd).replace(',00','')} peças · ${money0(totalProjetado)}</b></div>`:''}
+  ${S.catalogo.length?`<div class="row" style="grid-template-columns:1fr 40px;margin-bottom:10px">
+   <select class="input" id="metaProdSel"><option value="">Escolher produto…</option>${S.catalogo.map(c=>`<option value="${c.id}">${esc(c.titulo)}</option>`).join('')}</select>
+   <button class="iconbtn" style="background:var(--soft2);color:var(--accent)" data-act="add-meta-produto" aria-label="Adicionar">${ic('plus',16)}</button>
+  </div>`:`<p class="dim" style="font-size:12px;margin-bottom:10px">Cadastre produtos na galeria para vincular à meta.</p>`}
+  <button class="btn line sm" data-act="toggle-meta-produtos">${ic('seta',13)} Ocultar produtos da meta</button>
+  `:`
+  <button class="btn soft sm" data-act="toggle-meta-produtos" style="margin-top:2px">${ic('pacote',14)} Produtos para bater a meta${prods.length?` (${prods.length})`:''}</button>
+  `}
+ </section>`;
+}
 function vPainel(){
  const ab=abasOrdenadas();
  if(!ab.some(a=>a[0]===UI.pai))UI.pai=ab[0][0];
- return `<div class="chips" style="margin:2px 0 14px">
+ return `${cardMetas()}
+ <div class="chips" style="margin:2px 0 14px">
   ${abasOrdenadas().map(([v,l])=>`<button data-pai="${v}" aria-pressed="${UI.pai===v}">${l}</button>`).join('')}
  </div>
  ${({resumo:pResumo,foco:pFoco,cards:pCards,cal:pCal,kanban:pKanban,
@@ -749,7 +884,7 @@ function pResumo(){
      <b style="color:var(--accent);font-variant-numeric:tabular-nums">${money(lucroHora(i))}/h</b></div>
     <div class="prog" style="margin:5px 0 0"><i style="width:${Math.max(4,lucroHora(i)/maxLh*100)}%"></i></div>
    </div>`).join(''):'<p class="dim" style="font-size:13px">Informe as horas de confecção nos pedidos.</p>'}
-  <p class="dim" style="font-size:11.5px">Sua meta é ${money(S.cfg.valorHora)}/h. Abaixo disso está barato demais.</p>
+  <p class="dim" style="font-size:11.5px">Sua meta é ${money(valorHoraEfetivo())}/h${S.cfg.despesas?.incluir?' (já com o custo do ateliê)':''}. Abaixo disso está barato demais.</p>
  </section>
  <section class="sect">
   <h2>${ic('grafico',15)} Produção por tipo</h2>
@@ -945,8 +1080,8 @@ function cardItem(it){
    ${atrasado(it)?`<span class="chip warn">${Math.abs(d)}d atraso</span>`:''}</span>
    ${ic('seta',16)}
   </div>
-  <p style="font-weight:800;font-size:14px">${esc(it.nome)}</p>
-  <p class="dim" style="font-size:12px;margin-bottom:9px">${esc(nomeCli(it.clienteId))} · entrega ${fmtData(it.dataEntrega)}</p>
+  <p style="font-weight:800;font-size:14px">${esc(it.nome)}${num(it.quantidade)>1?` <span class="dim" style="font-weight:700">×${nBR(it.quantidade).replace(',00','')}</span>`:''}</p>
+  <p class="dim" style="font-size:12px;margin-bottom:9px">${esc(nomeCli(it.clienteId))} · entrega ${fmtData(it.dataEntrega)}${it.pedidoCod?` · ${esc(it.pedidoCod)}`:''}</p>
   <div class="grid g3">
    <div class="mini"><div class="l">Venda</div><div class="v">${money0(totalItem(it))}</div></div>
    <div class="mini"><div class="l">Lucro</div><div class="v acc">${money0(lucroItem(it))}</div></div>
@@ -1121,11 +1256,13 @@ function vGaleria(){
 let CALC={material:'',horas:'',embalagem:'',extra:''};
 function cardCalculadora(){
  const c=S.cfg,mat=num(CALC.material),hrs=num(CALC.horas),emb=num(CALC.embalagem),ext=num(CALC.extra);
- const custo=mat+emb+ext,maoObra=hrs*num(c.valorHora),base=custo+maoObra;
+ const horaBase=num(c.valorHora),horaAtelie=(c.despesas&&c.despesas.incluir)?custoHoraAtelie():0,horaEf=horaBase+horaAtelie;
+ const custo=mat+emb+ext,maoObra=hrs*horaEf,base=custo+maoObra;
  const comMargem=base*(1+num(c.margem)/100);
  const taxa=num(c.taxa);
  const preco=taxa>0&&taxa<100?comMargem/(1-taxa/100):comMargem;
  const lucroR=preco-custo-(preco*taxa/100);
+ const metaHora=valorHoraEfetivo();
  const rank=S.itens.filter(i=>lucroHora(i)!==null&&i.status!=='cancelado').sort((a,b)=>lucroHora(b)-lucroHora(a));
  const prods=S.catalogo.filter(p=>num(p.tempoConfeccao)>0)
   .map(p=>({...p,lh:(num(p.valor)-num(p.custoProducao))/num(p.tempoConfeccao)})).sort((a,b)=>b.lh-a.lh);
@@ -1134,17 +1271,17 @@ function cardCalculadora(){
   <h2>${ic('calc',15)} Quanto cobrar</h2>
   <p class="dim" style="font-size:12.5px;margin-bottom:12px">Preencha o custo real e o app aplica sua hora, sua margem e a taxa da plataforma.</p>
   <div class="row r2">
-   <label class="field"><span>Material (R$)</span><input class="input" type="number" inputmode="decimal" data-calc="material" value="${CALC.material}"></label>
-   <label class="field"><span>Horas de trabalho</span><input class="input" type="number" inputmode="decimal" data-calc="horas" value="${CALC.horas}"></label>
+   <label class="field"><span>Material (R$)</span><input class="input" type="text" inputmode="decimal" data-calc="material" value="${CALC.material}"></label>
+   <label class="field"><span>Horas de trabalho</span><input class="input" type="text" inputmode="decimal" data-calc="horas" value="${CALC.horas}"></label>
   </div>
   <div class="row r2">
-   <label class="field"><span>Embalagem (R$)</span><input class="input" type="number" inputmode="decimal" data-calc="embalagem" value="${CALC.embalagem}"></label>
-   <label class="field"><span>Outros custos (R$)</span><input class="input" type="number" inputmode="decimal" data-calc="extra" value="${CALC.extra}"></label>
+   <label class="field"><span>Embalagem (R$)</span><input class="input" type="text" inputmode="decimal" data-calc="embalagem" value="${CALC.embalagem}"></label>
+   <label class="field"><span>Outros custos (R$)</span><input class="input" type="text" inputmode="decimal" data-calc="extra" value="${CALC.extra}"></label>
   </div>
   <div class="row r3">
-   <label class="field"><span>Sua hora (R$)</span><input class="input" type="number" inputmode="decimal" data-cfg="valorHora" value="${c.valorHora}"></label>
-   <label class="field"><span>Margem (%)</span><input class="input" type="number" inputmode="decimal" data-cfg="margem" value="${c.margem}"></label>
-   <label class="field"><span>Taxa plataf. (%)</span><input class="input" type="number" inputmode="decimal" data-cfg="taxa" value="${c.taxa}"></label>
+   <label class="field"><span>Sua hora (R$)</span><input class="input" type="text" inputmode="decimal" data-cfg="valorHora" value="${c.valorHora}"></label>
+   <label class="field"><span>Margem (%)</span><input class="input" type="text" inputmode="decimal" data-cfg="margem" value="${c.margem}"></label>
+   <label class="field"><span>Taxa plataf. (%)</span><input class="input" type="text" inputmode="decimal" data-cfg="taxa" value="${c.taxa}"></label>
   </div>
   <div class="stat" style="text-align:center;padding:18px">
    <span class="l" style="margin:0 0 4px">preço sugerido de venda</span>
@@ -1152,7 +1289,8 @@ function cardCalculadora(){
   </div>
   <div style="margin-top:10px">
    <div class="kv"><span class="dim">Custo direto</span><b>${money(custo)}</b></div>
-   <div class="kv"><span class="dim">Sua mão de obra (${nBR(hrs).replace(',00','')}h)</span><b>${money(maoObra)}</b></div>
+   <div class="kv"><span class="dim">Sua mão de obra (${nBR(hrs).replace(',00','')}h)</span><b>${money(hrs*horaBase)}</b></div>
+   ${horaAtelie>0?`<div class="kv"><span class="dim">Custo do ateliê (${nBR(hrs).replace(',00','')}h)</span><b>${money(hrs*horaAtelie)}</b></div>`:''}
    <div class="kv"><span class="dim">Margem de ${nBR(c.margem).replace(',00','')}%</span><b>${money(comMargem-base)}</b></div>
    ${taxa>0?`<div class="kv"><span class="dim">Taxa da plataforma</span><b>${money(preco*taxa/100)}</b></div>`:''}
    <div class="kv"><span class="dim">Sobra no bolso</span><b style="color:var(--accent)">${money(lucroR)}</b></div>
@@ -1164,16 +1302,16 @@ function cardCalculadora(){
   <div>
    ${prods.length?prods.map(p=>`<div class="kv">
      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.titulo)}</span>
-     <b style="color:${p.lh>=num(c.valorHora)?'var(--ok)':'var(--danger)'}">${money(p.lh)}/h</b></div>`).join('')
+     <b style="color:${p.lh>=metaHora?'var(--ok)':'var(--danger)'}">${money(p.lh)}/h</b></div>`).join('')
     :'<p class="dim" style="font-size:13px">Cadastre produtos na galeria com tempo de confecção.</p>'}
-   <p style="font-size:11.5px;color:var(--dim);margin-top:8px">Verde = paga sua hora de ${money(c.valorHora)}. Vermelho = você está subsidiando o cliente.</p>
+   <p style="font-size:11.5px;color:var(--dim);margin-top:8px">Verde = paga sua hora de ${money(metaHora)}${horaAtelie>0?' (com o ateliê)':''}. Vermelho = você está subsidiando o cliente.</p>
   </div>
  </section>
 
  ${rank.length?`<section class="sect"><h2>${ic('pacote',15)} Pedidos por retorno/hora</h2>
  <div>${rank.slice(0,8).map(i=>`<div class="kv">
    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i.nome)}</span>
-   <b style="color:${lucroHora(i)>=num(c.valorHora)?'var(--ok)':'var(--danger)'}">${money(lucroHora(i))}/h</b></div>`).join('')}</div></section>`:''}`;
+   <b style="color:${lucroHora(i)>=metaHora?'var(--ok)':'var(--danger)'}">${money(lucroHora(i))}/h</b></div>`).join('')}</div></section>`:''}`;
 }
 
 /* ============ AJUSTES ============ */
@@ -1192,6 +1330,12 @@ function vConfig(){
    <span style="color:${v.text}">${pl.nome}</span></button>`};
  return `
  <section class="sect" style="margin-top:0">
+  <h2>${ic('users',15)} Conta</h2>
+  <div class="kv"><span class="dim">Logado como</span><b style="font-size:12.5px">${esc(AUTH_USER?.email||'')}</b></div>
+  <button class="btn line sm" data-act="sair" style="margin-top:10px">${ic('x',14)} Sair da conta</button>
+ </section>
+
+ <section class="sect">
   <h2>${ic('lapis',15)} Identidade do app</h2>
   <label class="field"><span>Título do app</span>
    <input class="input" data-cfg="nomeAtelie" value="${esc(c.nomeAtelie)}" placeholder="Minha Produção"></label>
@@ -1309,10 +1453,35 @@ function vConfig(){
  <section class="sect">
   <h2>${ic('relogio',15)} Meu trabalho</h2>
   <div class="row r3">
-   <label class="field"><span>Valor da hora (R$)</span><input class="input" type="number" inputmode="decimal" data-cfg="valorHora" value="${c.valorHora}"></label>
-   <label class="field"><span>Margem padrão (%)</span><input class="input" type="number" inputmode="decimal" data-cfg="margem" value="${c.margem}"></label>
-   <label class="field"><span>Taxa plataforma (%)</span><input class="input" type="number" inputmode="decimal" data-cfg="taxa" value="${c.taxa}"></label>
+   <label class="field"><span>Valor da hora (R$)</span><input class="input" type="text" inputmode="decimal" data-cfg="valorHora" value="${c.valorHora}"></label>
+   <label class="field"><span>Margem padrão (%)</span><input class="input" type="text" inputmode="decimal" data-cfg="margem" value="${c.margem}"></label>
+   <label class="field"><span>Taxa plataforma (%)</span><input class="input" type="text" inputmode="decimal" data-cfg="taxa" value="${c.taxa}"></label>
   </div>
+ </section>
+
+ <section class="sect">
+  <h2>${ic('wallet',15)} Despesas fixas do ateliê</h2>
+  <p class="dim" style="font-size:12.5px;margin-bottom:12px">Informe os custos mensais fixos do seu ateliê para descobrir quanto custa cada hora de trabalho, além do seu valor de mão de obra.</p>
+  <div class="row r2">
+   <label class="field"><span>Aluguel (R$/mês)</span><input class="input" type="text" inputmode="decimal" data-desp="aluguel" value="${c.despesas.aluguel||''}"></label>
+   <label class="field"><span>Luz (R$/mês)</span><input class="input" type="text" inputmode="decimal" data-desp="luz" value="${c.despesas.luz||''}"></label>
+  </div>
+  <div class="row r2">
+   <label class="field"><span>Água (R$/mês)</span><input class="input" type="text" inputmode="decimal" data-desp="agua" value="${c.despesas.agua||''}"></label>
+   <label class="field"><span>Internet (R$/mês)</span><input class="input" type="text" inputmode="decimal" data-desp="internet" value="${c.despesas.internet||''}"></label>
+  </div>
+  <label class="field"><span>Outras despesas (R$/mês)</span><input class="input" type="text" inputmode="decimal" data-desp="outras" value="${c.despesas.outras||''}"></label>
+  <label class="field"><span>Horas trabalhadas por mês</span><input class="input" type="text" inputmode="decimal" data-desp="horasMes" value="${c.despesas.horasMes||''}"></label>
+  <div style="margin:6px 0 12px">
+   <div class="kv"><span class="dim">Total de despesas fixas</span><b>${money(totalDespesas())}</b></div>
+   <div class="kv"><span class="dim">Custo da hora do ateliê</span><b style="color:var(--accent)">${money(custoHoraAtelie())}/h</b></div>
+  </div>
+  <div class="switchrow">
+   <span style="min-width:0"><b style="font-size:13px">Incluir no valor da hora</b><br>
+    <span class="dim" style="font-size:11.5px">Soma o custo do ateliê ao valor da sua hora na calculadora "Quanto cobrar"</span></span>
+   <button class="switch" data-act="desp-toggle" aria-pressed="${!!c.despesas.incluir}" aria-label="Incluir despesas no valor da hora"><i></i></button>
+  </div>
+  ${c.despesas.incluir?`<p style="font-size:12px;margin-top:10px">Valor da hora efetivo: <b style="color:var(--accent)">${money(valorHoraEfetivo())}</b> (${money(c.valorHora)} + ${money(custoHoraAtelie())} do ateliê)</p>`:''}
  </section>
 
  <section class="sect">
@@ -1401,6 +1570,8 @@ function detalheItem(id){
  abrir(it.nome,`
   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
    ${pillStatus(it.status)}<span class="chip ghost">${esc(it.tipo)}</span>
+   ${num(it.quantidade)>1?`<span class="chip">${nBR(it.quantidade).replace(',00','')}x</span>`:''}
+   ${it.pedidoCod?`<span class="chip ghost">${ic('etiqueta',11)} ${esc(it.pedidoCod)}</span>`:''}
    ${c?`<span class="chip ghost">${esc(c.nome)}</span>`:''}</div>
 
   <p style="font-size:11.5px;font-weight:800;color:var(--dim);margin-bottom:6px">SITUAÇÃO</p>
@@ -1511,7 +1682,7 @@ function detalheProduto(id){
   <div class="box" style="margin-bottom:14px">
    <div class="kv"><span class="dim">Lucro por peça</span><b style="color:var(--accent)">${money(num(p.valor)-num(p.custoProducao))}</b></div>
    ${lh!==null?`<div class="kv"><span class="dim">Retorno por hora</span>
-    <b style="color:${lh>=num(S.cfg.valorHora)?'var(--ok)':'var(--danger)'}">${money(lh)}/h</b></div>`:''}
+    <b style="color:${lh>=valorHoraEfetivo()?'var(--ok)':'var(--danger)'}">${money(lh)}/h</b></div>`:''}
    ${(p.materiais||[]).map(m=>{const e=mat(m.mid);return `<div class="kv"><span class="dim">${esc(e?e.nome:'(removido)')}</span><b>${nBR(m.qtd).replace(',00','')} ${esc(e?.unidade||'')}</b></div>`}).join('')}
   </div>
   <button class="btn soft" data-novoped="${p.id}" style="margin-bottom:10px">${ic('plus',15)} Criar pedido com este produto</button>
@@ -1529,15 +1700,26 @@ function optsMat(sel){return S.estoque.map(m=>`<option value="${m.id}" ${m.id===
 
 function lerItem(){
  if(!FORM)return;
- FORM.nome=val('fNome');FORM.tipo=val('fTipo');FORM.clienteId=val('fCli');
+ FORM.nome=val('fNome');FORM.tipo=val('fTipo');FORM.clienteId=val('fCli');FORM.pedidoCod=val('fPedCod');
+ FORM.quantidade=Math.max(1,Math.round(num(val('fQtd')))||1);
  FORM.custoMaterial=num(val('fCusto'));FORM.valorVenda=num(val('fVenda'));FORM.valorFrete=num(val('fFrete'));
  FORM.tempoHoras=num(val('fHoras'));FORM.dataPedido=val('fPedido');FORM.dataEntrega=val('fEntrega');
  FORM.dataPostagem=val('fPostagem');FORM.rastreio=val('fRastreio');FORM.status=val('fStatus');
  FORM.etapas=FORM.etapas.map((e,i)=>({...e,nome:val('fEt'+i),data:val('fEd'+i)}));
  FORM.materiais=FORM.materiais.map((m,i)=>({mid:val('fMm'+i),qtd:num(val('fMq'+i))}));
+ FORM.extras=(FORM.extras||[]).map((x,i)=>({...x,
+  produtoId:document.getElementById('exProd'+i)?val('exProd'+i):(x.produtoId||''),
+  quantidade:Math.max(1,Math.round(num(val('exQtd'+i)))||1),
+  custoMaterial:num(val('exCusto'+i)),valorVenda:num(val('exVenda'+i)),tempoHoras:num(val('exHoras'+i))}));
 }
 function corpoItem(){
  const f=FORM,lh=num(f.tempoHoras)>0?(num(f.valorVenda)-num(f.custoMaterial))/num(f.tempoHoras):null;
+ const irmaos=f.pedidoCod?S.itens.filter(i=>i.pedidoCod===f.pedidoCod&&i.id!==f.id):[];
+ f.extras=f.extras||[];
+ const temMultiplos=irmaos.length>0||f.extras.length>0;
+ const totVenda=num(f.valorVenda)+irmaos.reduce((s,i)=>s+num(i.valorVenda),0)+f.extras.reduce((s,x)=>s+num(x.valorVenda),0);
+ const totCusto=num(f.custoMaterial)+irmaos.reduce((s,i)=>s+num(i.custoMaterial),0)+f.extras.reduce((s,x)=>s+num(x.custoMaterial),0);
+ const totHoras=num(f.tempoHoras)+irmaos.reduce((s,i)=>s+num(i.tempoHoras),0)+f.extras.reduce((s,x)=>s+num(x.tempoHoras),0);
  return `
  <label class="field"><span>O que é</span><input class="input" id="fNome" value="${esc(f.nome)}" placeholder="Ex: Boneca biscuit — Ana"></label>
  <div class="row r2">
@@ -1546,16 +1728,56 @@ function corpoItem(){
  </div>
  <label class="field"><span>Cliente</span><select class="input" id="fCli">${optsCli(f.clienteId)}</select></label>
  <button class="btn line sm" data-act="novo-cliente-rapido" style="margin:-4px 0 12px">${ic('plus',14)} Cadastrar cliente novo</button>
+ <div class="row r2">
+  <label class="field"><span>Nº do pedido</span><input class="input" id="fPedCod" value="${esc(f.pedidoCod||'')}" placeholder="Ex: PED-0001"></label>
+  <label class="field"><span>Quantidade</span><input class="input" id="fQtd" type="number" min="1" step="1" inputmode="numeric" value="${f.quantidade||1}"></label>
+ </div>
  ${S.catalogo.length?`<label class="field"><span>Puxar de um produto da galeria</span>
-  <select class="input" id="fProd"><option value="">— não usar —</option>${S.catalogo.map(c=>`<option value="${c.id}">${esc(c.titulo)}</option>`).join('')}</select></label>`:''}
+  <select class="input" id="fProd"><option value="">— não usar —</option>${S.catalogo.map(c=>`<option value="${c.id}" ${c.id===f.produtoId?'selected':''}>${esc(c.titulo)}</option>`).join('')}</select></label>`
+  :`<div class="box" style="background:var(--bg);box-shadow:none;margin-bottom:11px">
+     <p class="dim" style="font-size:12.5px;margin-bottom:8px">Você ainda não tem produtos cadastrados na galeria — cadastre um para poder escolher aqui.</p>
+     <button class="btn soft sm" data-act="novo-produto-rapido">${ic('plus',14)} Cadastrar produto agora</button>
+    </div>`}
  <div class="row r3">
   <label class="field"><span>Material (R$)</span><input class="input" id="fCusto" type="number" inputmode="decimal" value="${f.custoMaterial||''}"></label>
   <label class="field"><span>Venda (R$)</span><input class="input" id="fVenda" type="number" inputmode="decimal" value="${f.valorVenda||''}"></label>
   <label class="field"><span>Frete (R$)</span><input class="input" id="fFrete" type="number" inputmode="decimal" value="${f.valorFrete||''}"></label>
  </div>
+ <p class="dim" style="font-size:11px;margin:-6px 0 10px">Material, venda e horas são o total deste produto; mudar a quantidade recalcula os três a partir do valor por unidade.</p>
  <label class="field"><span>Horas de trabalho</span><input class="input" id="fHoras" type="number" inputmode="decimal" value="${f.tempoHoras||''}"></label>
- ${lh!==null?`<p style="font-size:12px;margin:-6px 0 12px;color:${lh>=num(S.cfg.valorHora)?'var(--ok)':'var(--danger)'}">
-  Retorno de <b>${money(lh)}/h</b> — sua meta é ${money(S.cfg.valorHora)}/h</p>`:''}
+ ${lh!==null?`<p style="font-size:12px;margin:-6px 0 12px;color:${lh>=valorHoraEfetivo()?'var(--ok)':'var(--danger)'}">
+  Retorno de <b>${money(lh)}/h</b> — sua meta é ${money(valorHoraEfetivo())}/h</p>`:''}
+
+ <section class="box" style="margin:4px 0 16px;background:var(--bg);box-shadow:none">
+  <p style="font-size:11.5px;font-weight:800;color:var(--dim);margin-bottom:8px">${ic('pacote',13)} MAIS PRODUTOS NESTE PEDIDO <span style="font-weight:600">(mesmo cliente, mesmo código)</span></p>
+  ${irmaos.length?`<div class="list" style="gap:7px;margin-bottom:10px">${irmaos.map(s=>`
+   <button class="box" data-item="${s.id}" style="display:flex;justify-content:space-between;align-items:center;gap:9px;text-align:left">
+    <span><b style="font-size:13px">${esc(s.nome)}</b><br><span class="dim" style="font-size:11.5px">${nBR(s.quantidade||1).replace(',00','')}x · ${money(totalItem(s))}</span></span>
+    ${pillStatus(s.status)}</button>`).join('')}</div>`:''}
+  ${f.extras.map((x,i)=>`
+   <div class="box" style="margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+     <b style="font-size:11.5px;color:var(--dim);letter-spacing:.04em">PRODUTO ${i+2}</b>
+     <button class="iconbtn" data-rmextra="${i}" aria-label="Remover">${ic('x',16)}</button>
+    </div>
+    ${S.catalogo.length?`<label class="field"><span>Puxar de um produto da galeria</span>
+     <select class="input" id="exProd${i}" data-exprod="${i}"><option value="">— não usar —</option>${S.catalogo.map(c=>`<option value="${c.id}" ${c.id===x.produtoId?'selected':''}>${esc(c.titulo)}</option>`).join('')}</select></label>`
+     :`<p class="dim" style="font-size:12px;margin-bottom:8px">Sem produtos na galeria. <button class="btn soft sm" data-act="novo-produto-rapido" style="display:inline-flex;width:auto;padding:6px 10px;margin-left:2px">${ic('plus',13)} Cadastrar</button></p>`}
+    <div class="row r3">
+     <label class="field"><span>Material (R$)</span><input class="input" id="exCusto${i}" type="number" inputmode="decimal" value="${x.custoMaterial||''}"></label>
+     <label class="field"><span>Venda (R$)</span><input class="input" id="exVenda${i}" type="number" inputmode="decimal" value="${x.valorVenda||''}"></label>
+     <label class="field"><span>Quantidade</span><input class="input" id="exQtd${i}" data-exqtd="${i}" type="number" min="1" step="1" inputmode="numeric" value="${x.quantidade||1}"></label>
+    </div>
+    <label class="field" style="margin-bottom:0"><span>Horas de trabalho</span><input class="input" id="exHoras${i}" type="number" inputmode="decimal" value="${x.tempoHoras||''}"></label>
+   </div>`).join('')}
+  <button class="btn line sm" data-act="add-extra">${ic('plus',14)} Adicionar produto</button>
+  ${temMultiplos?`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+   <div class="kv"><span class="dim">Venda total do pedido</span><b style="color:var(--accent)">${money(totVenda)}</b></div>
+   <div class="kv"><span class="dim">Material total do pedido</span><b>${money(totCusto)}</b></div>
+   <div class="kv"><span class="dim">Horas totais do pedido</span><b>${nBR(totHoras).replace(',00','')}h</b></div>
+  </div>`:''}
+ </section>
+
  <div class="row r2">
   <label class="field"><span>Data do pedido</span><input class="input" id="fPedido" type="date" value="${f.dataPedido||''}"></label>
   <label class="field"><span>Entrega</span><input class="input" id="fEntrega" type="date" value="${f.dataEntrega||''}"></label>
@@ -1585,8 +1807,10 @@ function corpoItem(){
 function formItem(id,base){
  const it=id?S.itens.find(i=>i.id===id):null;
  FORM=it?JSON.parse(JSON.stringify(it)):{id:null,nome:'',tipo:TIPOS[0],clienteId:'',status:'orcamento',
+  quantidade:1,produtoId:'',pedidoCod:novoPedidoCod(),
   custoMaterial:'',valorVenda:'',valorFrete:'',tempoHoras:'',dataPedido:hoje(),dataEntrega:addDias(7),
   dataPostagem:'',rastreio:'',materiais:[],etapas:[{nome:'Produção',data:addDias(3),feita:false}],pagamentos:[],baixaFeita:false};
+ FORM.extras=[];
  if(base)Object.assign(FORM,base);
  abrir(id?'Editar pedido':'Novo pedido',corpoItem());
 }
@@ -1594,10 +1818,20 @@ function refazItem(){lerItem();$('#sheetBody').innerHTML=corpoItem()}
 function salvarItem(){
  lerItem();
  if(!FORM.nome.trim())return toast('Dê um nome ao pedido');
+ const extras=(FORM.extras||[]).slice();delete FORM.extras;
  if(FORM.id){const i=S.itens.findIndex(x=>x.id===FORM.id);const ant=S.itens[i];
   const st=FORM.status;FORM.status=ant.status;S.itens[i]=FORM;mudarStatus(S.itens[i],st);}
  else{FORM.id=uid();const st=FORM.status;FORM.status='orcamento';S.itens.push(FORM);mudarStatus(FORM,st);}
- salvar();fechar();render();toast('Pedido salvo');
+ extras.forEach(x=>{
+  const novo={id:uid(),nome:x.titulo||(FORM.nome+' (item 2)'),tipo:FORM.tipo,clienteId:FORM.clienteId,status:'orcamento',
+   quantidade:x.quantidade,produtoId:x.produtoId,pedidoCod:FORM.pedidoCod,
+   custoMaterial:x.custoMaterial,valorVenda:x.valorVenda,valorFrete:0,tempoHoras:x.tempoHoras,
+   dataPedido:FORM.dataPedido,dataEntrega:FORM.dataEntrega,dataPostagem:FORM.dataPostagem,rastreio:'',
+   materiais:x.materiais||[],etapas:[],pagamentos:[],baixaFeita:false};
+  S.itens.push(novo);mudarStatus(novo,FORM.status);
+ });
+ salvar();fechar();render();
+ toast(extras.length?`Pedido salvo com mais ${extras.length} ite${extras.length===1?'m':'ns'}`:'Pedido salvo');
 }
 
 function formCliente(id,volta){
@@ -1637,7 +1871,7 @@ function formMaterial(id){
   ${id?`<button class="btn danger sm" data-delmat="${id}" style="margin-top:12px">${ic('lixo',15)} Excluir material</button>`:''}`);
 }
 let IMG_TMP=null;
-function formProduto(id){
+function formProduto(id,volta){
  const p=id?S.catalogo.find(x=>x.id===id):null;IMG_TMP=p?.imagem||null;
  abrir(id?'Editar produto':'Novo produto',`
   <button class="btn soft" id="btImg" style="height:150px;flex-direction:column;padding:0;overflow:hidden;margin-bottom:12px">
@@ -1652,7 +1886,7 @@ function formProduto(id){
    <label class="field"><span>Tempo (h)</span><input class="input" id="pTemp" type="number" inputmode="decimal" value="${p?.tempoConfeccao??''}"></label>
    <label class="field"><span>Peças prontas</span><input class="input" id="pQtd" type="number" inputmode="decimal" value="${p?.qtdEstoque??''}"></label>
   </div>
-  <button class="btn primary" data-act="salvar-produto" data-id="${id||''}">Salvar produto</button>`,
+  <button class="btn primary" data-act="salvar-produto" data-id="${id||''}" data-volta="${volta||''}">Salvar produto</button>`,
  ()=>{
   $('#btImg').onclick=()=>$('#fFoto').click();
   $('#fFoto').onchange=e=>{const f=e.target.files[0];if(!f)return;
@@ -1715,7 +1949,7 @@ function listaCompras(){
 
 /* ============ eventos ============ */
 document.addEventListener('click',ev=>{
- const t=ev.target.closest('[data-view],[data-act],[data-pai],[data-per],[data-fst],[data-vista],[data-mes],[data-dia],[data-item],[data-cliente],[data-produto],[data-edit-mat],[data-status],[data-etapa],[data-pgadd],[data-pgdel],[data-pgquit],[data-baixa],[data-wa],[data-wacli],[data-edititem],[data-delitem],[data-editcli],[data-delcli],[data-editprod],[data-delprod],[data-delmat],[data-novoped],[data-qtd],[data-tema],[data-modo],[data-ord],[data-esc],[data-notiftg],[data-fonte],[data-rmet],[data-rmmat]');
+ const t=ev.target.closest('[data-view],[data-act],[data-pai],[data-per],[data-fst],[data-vista],[data-mes],[data-dia],[data-item],[data-cliente],[data-produto],[data-edit-mat],[data-status],[data-etapa],[data-pgadd],[data-pgdel],[data-pgquit],[data-baixa],[data-wa],[data-wacli],[data-edititem],[data-delitem],[data-editcli],[data-delcli],[data-editprod],[data-delprod],[data-delmat],[data-novoped],[data-qtd],[data-tema],[data-modo],[data-ord],[data-esc],[data-notiftg],[data-fonte],[data-rmet],[data-rmmat],[data-rmextra],[data-rmmeta],[data-metaauto]');
  if(!t)return;
  const d=t.dataset;
 
@@ -1781,13 +2015,17 @@ document.addEventListener('click',ev=>{
  if(d.qtd){const e=mat(d.qtd);const passo=num(e.consumoPorItem)&&num(e.consumoPorItem)<1?num(e.consumoPorItem):1;
   e.qtd=Math.max(0,Math.round((num(e.qtd)+ +d.delta*passo)*1000)/1000);salvar();render();return}
  if(d.novoped){const p=S.catalogo.find(x=>x.id===d.novoped);
-  formItem(null,{nome:p.titulo,custoMaterial:p.custoProducao,valorVenda:p.valor,tempoHoras:p.tempoConfeccao,
+  formItem(null,{nome:p.titulo,produtoId:p.id,quantidade:1,custoMaterial:p.custoProducao,valorVenda:p.valor,tempoHoras:p.tempoConfeccao,
    materiais:JSON.parse(JSON.stringify(p.materiais||[]))});return}
  if(d.edititem){formItem(d.edititem);return}
  if(d.editcli){formCliente(d.editcli);return}
  if(d.editprod){formProduto(d.editprod);return}
  if(d.rmet!==undefined){lerItem();FORM.etapas.splice(+d.rmet,1);$('#sheetBody').innerHTML=corpoItem();return}
  if(d.rmmat!==undefined){lerItem();FORM.materiais.splice(+d.rmmat,1);$('#sheetBody').innerHTML=corpoItem();return}
+ if(d.rmextra!==undefined){lerItem();FORM.extras.splice(+d.rmextra,1);$('#sheetBody').innerHTML=corpoItem();return}
+ if(d.rmmeta!==undefined){S.cfg.metas.produtos.splice(+d.rmmeta,1);salvar();render();return}
+ if(d.metaauto){const item=S.cfg.metas.produtos.find(x=>x.id===d.metaauto);
+  if(item){item.fixado=false;salvar();render();toast('Voltou a calcular automaticamente')}return}
 
  if(d.delitem){const i=S.itens.findIndex(x=>x.id===d.delitem),bk=S.itens[i];
   S.itens.splice(i,1);salvar();fechar();render();toast('Pedido excluído',()=>S.itens.splice(i,0,bk));return}
@@ -1823,12 +2061,40 @@ document.addEventListener('click',ev=>{
   case'novo-cliente':formCliente(null);break;
   case'novo-produto':formProduto(null);break;
   case'fechar':fechar();break;
+  case'auth-alternar':authModo=authModo==='cadastro'?'login':'cadastro';mostrarAuth();break;
+  case'auth-entrar':{
+   const email=val('authEmail').trim(),senha=val('authSenha');
+   if(!email||!senha)return toast('Preencha e-mail e senha');
+   firebase.auth().signInWithEmailAndPassword(email,senha).catch(erroAuth);break}
+  case'auth-cadastrar':{
+   const email=val('authEmail').trim(),senha=val('authSenha');
+   if(!email||!senha)return toast('Preencha e-mail e senha');
+   firebase.auth().createUserWithEmailAndPassword(email,senha).catch(erroAuth);break}
+  case'auth-esqueci':{
+   const email=val('authEmail').trim();
+   if(!email)return toast('Digite seu e-mail primeiro');
+   firebase.auth().sendPasswordResetEmail(email).then(()=>toast('E-mail de redefinição enviado')).catch(erroAuth);break}
+  case'sair':firebase.auth().signOut();break;
   case'modo':S.modo=escuroAtivo()?'claro':'escuro';salvar();render();break;
   case'lista-compras':listaCompras();break;
   case'add-etapa':lerItem();FORM.etapas.push({nome:'',data:hoje(),feita:false});$('#sheetBody').innerHTML=corpoItem();break;
   case'add-mat':lerItem();FORM.materiais.push({mid:S.estoque[0]?.id||'',qtd:1});$('#sheetBody').innerHTML=corpoItem();break;
+  case'add-extra':{
+   lerItem();FORM.extras=FORM.extras||[];
+   FORM.extras.push({produtoId:'',titulo:'',quantidade:1,custoMaterial:'',valorVenda:'',tempoHoras:'',materiais:[]});
+   if(!FORM.pedidoCod)FORM.pedidoCod=novoPedidoCod();
+   $('#sheetBody').innerHTML=corpoItem();break}
   case'salvar-item':salvarItem();break;
+  case'add-meta-produto':{
+   const pid=val('metaProdSel');if(!pid)return toast('Escolha um produto');
+   const p=S.catalogo.find(x=>x.id===pid);if(!p)break;
+   S.cfg.metas.produtos=S.cfg.metas.produtos||[];
+   if(!S.cfg.metas.produtos.find(x=>x.id===pid))S.cfg.metas.produtos.push({id:pid,qtdAlvo:0,fixado:false});
+   salvar();render();toast('Produto adicionado à meta');break}
+  case'desp-toggle':S.cfg.despesas.incluir=!S.cfg.despesas.incluir;salvar();render();break;
+  case'toggle-meta-produtos':UI.metaProdutosAberto=!UI.metaProdutosAberto;render();break;
   case'novo-cliente-rapido':lerItem();formCliente(null,'item');break;
+  case'novo-produto-rapido':lerItem();formProduto(null,'item');break;
   case'salvar-cliente':{
    const nome=val('cNome').trim();if(!nome)return toast('Informe o nome');
    const dados={nome,telefone:val('cTel'),email:val('cMail'),endereco:val('cEnd')};
@@ -1848,9 +2114,13 @@ document.addEventListener('click',ev=>{
    const titulo=val('pTit').trim();if(!titulo)return toast('Informe o nome do produto');
    const dados={titulo,valor:num(val('pVal')),custoProducao:num(val('pCusto')),
     tempoConfeccao:num(val('pTemp')),qtdEstoque:num(val('pQtd')),imagem:IMG_TMP};
-   if(d.id){const p=S.catalogo.find(x=>x.id===d.id);Object.assign(p,dados)}
-   else S.catalogo.push({id:uid(),materiais:[],...dados});
-   salvar();fechar();render();toast('Produto salvo');break}
+   if(d.id){const p=S.catalogo.find(x=>x.id===d.id);Object.assign(p,dados);salvar();
+    if(d.volta==='item'){abrir(FORM.id?'Editar pedido':'Novo pedido',corpoItem())}else{fechar();render()}
+    toast('Produto atualizado')}
+   else{S.catalogo.push({id:uid(),materiais:[],...dados});salvar();
+    if(d.volta==='item'){abrir(FORM.id?'Editar pedido':'Novo pedido',corpoItem())}else{fechar();render()}
+    toast('Produto salvo')}
+   break}
   case'exportar':{
    const b=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});
    const a=document.createElement('a');a.href=URL.createObjectURL(b);
@@ -1874,9 +2144,55 @@ document.addEventListener('change',e=>{
  if(el.id==='fProd'&&el.value){
   const p=S.catalogo.find(x=>x.id===el.value);if(!p)return;
   lerItem();
-  FORM.nome=FORM.nome||p.titulo;FORM.custoMaterial=p.custoProducao;FORM.valorVenda=p.valor;
-  FORM.tempoHoras=p.tempoConfeccao;FORM.materiais=JSON.parse(JSON.stringify(p.materiais||[]));
-  $('#sheetBody').innerHTML=corpoItem();toast('Dados do produto aplicados');
+  const qtd=Math.max(1,num(FORM.quantidade)||1);
+  FORM.nome=p.titulo;FORM.produtoId=p.id;
+  FORM.custoMaterial=+(num(p.custoProducao)*qtd).toFixed(2);FORM.valorVenda=+(num(p.valor)*qtd).toFixed(2);
+  FORM.tempoHoras=+(num(p.tempoConfeccao)*qtd).toFixed(3);
+  FORM.materiais=JSON.parse(JSON.stringify(p.materiais||[])).map(m=>({mid:m.mid,qtd:+(num(m.qtd)*qtd).toFixed(4)}));
+  $('#sheetBody').innerHTML=corpoItem();toast('Dados do produto aplicados');return;
+ }
+ if(el.id==='fQtd'){
+  const qtdAnterior=Math.max(1,num(FORM.quantidade)||1);
+  lerItem();
+  const novaQtd=Math.max(1,Math.round(num(FORM.quantidade))||1);
+  FORM.quantidade=novaQtd;
+  FORM.custoMaterial=+(num(FORM.custoMaterial)/qtdAnterior*novaQtd).toFixed(2);
+  FORM.valorVenda=+(num(FORM.valorVenda)/qtdAnterior*novaQtd).toFixed(2);
+  FORM.tempoHoras=+(num(FORM.tempoHoras)/qtdAnterior*novaQtd).toFixed(3);
+  FORM.materiais=FORM.materiais.map(m=>({mid:m.mid,qtd:+(num(m.qtd)/qtdAnterior*novaQtd).toFixed(4)}));
+  $('#sheetBody').innerHTML=corpoItem();return;
+ }
+ if(el.dataset.exprod!==undefined){
+  const i=+el.dataset.exprod;
+  lerItem();
+  const x=FORM.extras[i];if(!x)return;
+  const p=S.catalogo.find(c=>c.id===el.value);
+  if(p){
+   const qtd=Math.max(1,num(x.quantidade)||1);
+   x.produtoId=p.id;x.titulo=p.titulo;
+   x.custoMaterial=+(num(p.custoProducao)*qtd).toFixed(2);
+   x.valorVenda=+(num(p.valor)*qtd).toFixed(2);
+   x.tempoHoras=+(num(p.tempoConfeccao)*qtd).toFixed(3);
+   x.materiais=JSON.parse(JSON.stringify(p.materiais||[])).map(m=>({mid:m.mid,qtd:+(num(m.qtd)*qtd).toFixed(4)}));
+  }else{x.produtoId='';x.titulo=''}
+  $('#sheetBody').innerHTML=corpoItem();return;
+ }
+ if(el.dataset.exqtd!==undefined){
+  const i=+el.dataset.exqtd;
+  const qtdAnterior=Math.max(1,num(FORM.extras[i]?.quantidade)||1);
+  lerItem();
+  const x=FORM.extras[i];if(!x)return;
+  const novaQtd=Math.max(1,Math.round(num(x.quantidade))||1);
+  x.quantidade=novaQtd;
+  x.custoMaterial=+(num(x.custoMaterial)/qtdAnterior*novaQtd).toFixed(2);
+  x.valorVenda=+(num(x.valorVenda)/qtdAnterior*novaQtd).toFixed(2);
+  x.tempoHoras=+(num(x.tempoHoras)/qtdAnterior*novaQtd).toFixed(3);
+  x.materiais=(x.materiais||[]).map(m=>({mid:m.mid,qtd:+(num(m.qtd)/qtdAnterior*novaQtd).toFixed(4)}));
+  $('#sheetBody').innerHTML=corpoItem();return;
+ }
+ if(el.dataset.metaqtd){
+  const item=S.cfg.metas.produtos.find(x=>x.id===el.dataset.metaqtd);
+  if(item){item.qtdAlvo=Math.max(0,Math.round(num(el.value))||0);item.fixado=true;salvar();render();}
  }
 });
 document.addEventListener('change',e=>{
@@ -1898,8 +2214,23 @@ document.addEventListener('input',e=>{
    $('#hTitulo').textContent=S.cfg.nomeAtelie||'Minha Produção';document.title=S.cfg.nomeAtelie}
   if(sheetAberto){clearTimeout(window._rp);window._rp=setTimeout(()=>{
    const a=document.activeElement?.dataset?.cfg;$('#sheetBody').innerHTML=corpoCalc();
+   if(a){const el=document.querySelector(`[data-cfg="${a}"]`);if(el){el.focus();try{el.setSelectionRange(el.value.length,el.value.length)}catch(_){}}}},450)}
+  else if(!sheetAberto&&UI.view==='config'&&!txt.includes(d.cfg)){clearTimeout(window._rcfg);window._rcfg=setTimeout(()=>{
+   const a=document.activeElement?.dataset?.cfg;render();
    if(a){const el=document.querySelector(`[data-cfg="${a}"]`);if(el){el.focus();try{el.setSelectionRange(el.value.length,el.value.length)}catch(_){}}}},450)}}
  if(d.notif){S.cfg.notif[d.notif]=e.target.value;salvar();return}
+ if(d.desp){
+  S.cfg.despesas[d.desp]=num(e.target.value);salvar();
+  clearTimeout(window._rd);window._rd=setTimeout(()=>{
+   const a=document.activeElement?.dataset?.desp;render();
+   if(a){const el=document.querySelector(`[data-desp="${a}"]`);if(el){el.focus();try{el.setSelectionRange(el.value.length,el.value.length)}catch(_){}}}
+  },450);return}
+ if(d.meta){
+  S.cfg.metas[d.meta]=num(e.target.value);salvar();
+  clearTimeout(window._rme);window._rme=setTimeout(()=>{
+   const a=document.activeElement?.dataset?.meta;render();
+   if(a){const el=document.querySelector(`[data-meta="${a}"]`);if(el){el.focus();try{el.setSelectionRange(el.value.length,el.value.length)}catch(_){}}}
+  },450);return}
  if(d.cor||d.tom){
   const k=d.cor||d.tom;
   if(d.cor){S.custom[k].c=e.target.value;S.custom.base=''}else S.custom[k].t=+e.target.value;
@@ -1927,12 +2258,47 @@ addEventListener('popstate',()=>{
  history.pushState({guard:true},'');
 });
 
+/* ============ AUTENTICAÇÃO (Firebase — login com e-mail) ============ */
+let AUTH_USER=null,authModo='login',_appIniciado=false;
+function telaAuth(){
+ const cad=authModo==='cadastro';
+ return `
+ <div class="card">
+  <h1 class="disp" style="font-size:20px;text-align:center;margin-bottom:4px">${esc(S.cfg?.nomeAtelie||'Minha Produção')}</h1>
+  <p class="dim" style="text-align:center;font-size:12.5px;margin-bottom:18px">${cad?'Criar sua conta':'Entrar na sua conta'}</p>
+  <label class="field"><span>E-mail</span><input class="input" id="authEmail" type="email" autocomplete="username" placeholder="voce@email.com"></label>
+  <label class="field"><span>Senha</span><input class="input" id="authSenha" type="password" autocomplete="${cad?'new-password':'current-password'}" placeholder="Mínimo 6 caracteres"></label>
+  <button class="btn primary" data-act="${cad?'auth-cadastrar':'auth-entrar'}" style="margin-top:6px">${cad?'Criar conta':'Entrar'}</button>
+  <button class="btn line sm" data-act="auth-alternar" style="margin-top:10px">${cad?'Já tenho conta — entrar':'Não tenho conta — criar'}</button>
+  ${!cad?`<button class="btn sm" data-act="auth-esqueci" style="margin-top:2px;color:var(--accent);font-weight:700">Esqueci minha senha</button>`:''}
+ </div>`;
+}
+function mostrarAuth(){$('#authGate').classList.remove('hide');$('#authGate').innerHTML=telaAuth();document.body.style.overflow='hidden'}
+function ocultarAuth(){$('#authGate').classList.add('hide');document.body.style.overflow=''}
+function erroAuth(e){
+ const map={'auth/invalid-email':'E-mail inválido','auth/user-not-found':'Conta não encontrada',
+  'auth/wrong-password':'Senha incorreta','auth/email-already-in-use':'Este e-mail já tem uma conta',
+  'auth/weak-password':'Senha muito curta (mínimo 6 caracteres)','auth/invalid-credential':'E-mail ou senha incorretos',
+  'auth/too-many-requests':'Muitas tentativas — aguarde um pouco','auth/network-request-failed':'Sem conexão com a internet'};
+ toast(map[e.code]||('Erro: '+(e.message||e.code||'tente novamente')));
+}
+function iniciarApp(){
+ render();
+ if(_appIniciado)return;
+ _appIniciado=true;
+ if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+ setTimeout(checarLembretes,2500);
+ setInterval(checarLembretes,60000);
+ addEventListener('visibilitychange',()=>{if(!document.hidden&&AUTH_USER)checarLembretes()});
+}
+firebase.auth().onAuthStateChanged(user=>{
+ AUTH_USER=user;
+ if(user){S=carregarParaUsuario(user.uid);ocultarAuth();iniciarApp()}
+ else{authModo='login';mostrarAuth()}
+});
+
 /* ============ start ============ */
-render();
-if('serviceWorker'in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
-setTimeout(checarLembretes,2500);
-setInterval(checarLembretes,60000);
-addEventListener('visibilitychange',()=>{if(!document.hidden)checarLembretes()});
+mostrarAuth(); /* fica visível até o Firebase confirmar se há sessão ativa */
 </script>
 </body>
 </html>
